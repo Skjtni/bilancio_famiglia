@@ -219,7 +219,7 @@ function togglePagato(id){
   const voce=S.fisse.find(f=>f.id===id);
   const delta=voce.pagato?voce.importo:-voce.importo;
   S.fisse=S.fisse.map(f=>f.id===id?{...f,pagato:!f.pagato}:f);
-  S.saldo=+(S.saldo-delta).toFixed(2);
+  S.saldo=+(S.saldo+delta).toFixed(2);
   saveState(S);render();
 }
 function aggiungiExtra(){
