@@ -260,6 +260,12 @@ function aggiungiSpesaFissa(){
   nuovaFissa={nome:"",importo:"",giorno:""};
   showAddFissa=false;saveState(S);render();
 }
+function iniziaModificaFissa(id){
+  const voce=S.fisse.find(f=>f.id===id);
+  if(!voce)return;
+  editFissa={id:voce.id,nome:voce.nome,importo:voce.importo,giorno:voce.giorno};
+  render();
+}
 function salvaModFissa(){
   if(!editFissa)return;
   const imp=parseFloat(String(editFissa.importo).replace(",","."));
@@ -447,7 +453,7 @@ function render(){
             <div class="fissa-gg">Giorno ${f.giorno}</div>
           </div>
           <span class="fissa-imp${f.pagato?" done":""}">${fmt(f.importo)}</span>
-          <button class="btn-ghost btn-xs" onclick="editFissa=${JSON.stringify(f).replace(/"/g,"'")};editFissa=JSON.parse(JSON.stringify(${JSON.stringify(f)}));render()">✏️</button>
+          <button class="btn-ghost btn-xs" onclick="iniziaModificaFissa(${f.id})">✏️</button>
           <button class="btn-ghost btn-xs" style="color:#DC2626;border-color:#FCA5A5" onclick="confirmDel={type:'fissa',id:${f.id}};render()">🗑</button>
         </div>`;
       }
