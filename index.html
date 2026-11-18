@@ -110,6 +110,10 @@ input[type=checkbox]{width:20px;height:20px;cursor:pointer;accent-color:#2563EB;
 .empty{color:#9CA3AF;font-size:13px}
 .prog-bar-bg{height:8px;background:#F3F4F6;border-radius:99px}
 .prog-bar{height:8px;border-radius:99px}
+.fissa-row.na{opacity:.55}
+.fissa-row.na .fissa-nome,.fissa-row.na .fissa-imp{color:#9CA3AF;text-decoration:line-through}
+.badge-na{background:#F3F4F6;color:#6B7280}
+.badge-warn{background:#FEF3C7;color:#92400E}
 .add-fissa-box{margin-top:12px;padding:12px;background:#F9FAFB;border-radius:10px}
 </style>
 </head>
@@ -184,12 +188,15 @@ const CAT_STYLE={
 const NAVS=[
   {key:"nuovo",icon:"➕",label:"Nuovo"},
   {key:"fisse",icon:"📌",label:"Fisse"},
+  {key:"annuali",icon:"📅",label:"Annuali"},
   {key:"storico",icon:"📋",label:"Storico"},
   {key:"grafico",icon:"📊",label:"Grafico"},
 ];
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
-function loadState(){try{const r=localStorage.getItem("bilancio_v4");if(r)return JSON.parse(r);}catch{}return JSON.parse(JSON.stringify(INITIAL));}
+const MESI=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+function normalizeState(s){if(!Array.isArray(s.annuali))s.annuali=[];if(!Array.isArray(s.fisse))s.fisse=[];if(!Array.isArray(s.extra))s.extra=[];return s;}
+function loadState(){try{const r=localStorage.getItem("bilancio_v4");if(r)return normalizeState(JSON.parse(r));}catch{}return normalizeState(JSON.parse(JSON.stringify(INITIAL)));}
 function saveState(s){try{localStorage.setItem("bilancio_v4",JSON.stringify(s));}catch{}}
 
 let S=loadState();
@@ -201,6 +208,9 @@ let editSaldoVal="";
 let showAddFissa=false;
 let nuovaFissa={nome:"",importo:"",giorno:""};
 let editFissa=null;
+let showAddAnn=false;
+let nuovaAnn={nome:"",importo:"",mese:String(new Date().getMonth()+1)};
+let editAnn=null;
 let formNuovo={tipo:"USCITA",cat:"Cibo/Spesa",desc:"",importo:""};
 let showResetModal=false;
 let resetSaldoVal="";
@@ -208,9 +218,13 @@ let resetSaldoVal="";
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const fmt=n=>new Intl.NumberFormat("it-IT",{style:"currency",currency:"EUR"}).format(n);
 const fmtShort=n=>n>=1000?(n/1000).toFixed(1)+"k":n.toFixed(0);
+function meseCorrente(){return new Date().getMonth()+1;}
+function annPagata(a){return a.annoPagato===new Date().getFullYear();}
 function oggi(){return new Date().toISOString().split("T")[0];}
 function calcSaldo(){
-  const daPagare=S.fisse.filter(f=>!f.pagato).reduce((a,f)=>a+f.importo,0);
+  const daPagareFisse=S.fisse.filter(f=>!f.na&&!f.pagato).reduce((a,f)=>a+f.importo,0);
+  const daPagareAnn=S.annuali.filter(a=>a.mese===meseCorrente()&&!annPagata(a)).reduce((t,a)=>t+a.importo,0);
+  const daPagare=daPagareFisse+daPagareAnn;
   return{saldo:S.saldo,daPagare,effettivo:+(S.saldo-daPagare).toFixed(2)};
 }
 
@@ -221,6 +235,52 @@ function togglePagato(id){
   S.fisse=S.fisse.map(f=>f.id===id?{...f,pagato:!f.pagato}:f);
   S.saldo=+(S.saldo+delta).toFixed(2);
   saveState(S);render();
+}
+function toggleNA(id){
+  const voce=S.fisse.find(f=>f.id===id);
+  if(!voce)return;
+  if(!voce.na&&voce.pagato)S.saldo=+(S.saldo+voce.importo).toFixed(2); // annulla un pagamento già spuntato
+  S.fisse=S.fisse.map(f=>f.id===id?{...f,na:!f.na,pagato:f.na?f.pagato:false}:f);
+  saveState(S);render();
+}
+function togglePagataAnn(id){
+  const a=S.annuali.find(x=>x.id===id);
+  if(!a)return;
+  const paid=annPagata(a);
+  S.saldo=+(S.saldo+(paid?a.importo:-a.importo)).toFixed(2);
+  S.annuali=S.annuali.map(x=>x.id===id?{...x,annoPagato:paid?null:new Date().getFullYear()}:x);
+  saveState(S);render();
+}
+function aggiungiAnnuale(){
+  const imp=parseFloat(String(nuovaAnn.importo).replace(",","."));
+  const mese=parseInt(nuovaAnn.mese);
+  if(!nuovaAnn.nome.trim()||isNaN(imp)||isNaN(mese))return;
+  S.annuali.push({id:S.nextId,nome:nuovaAnn.nome.trim(),importo:imp,mese,annoPagato:null});
+  S.nextId++;
+  nuovaAnn={nome:"",importo:"",mese:String(meseCorrente())};
+  showAddAnn=false;saveState(S);render();
+}
+function iniziaModificaAnn(id){
+  const a=S.annuali.find(x=>x.id===id);
+  if(!a)return;
+  editAnn={id:a.id,nome:a.nome,importo:a.importo,mese:String(a.mese)};
+  render();
+}
+function salvaModAnn(){
+  if(!editAnn)return;
+  const imp=parseFloat(String(editAnn.importo).replace(",","."));
+  const mese=parseInt(editAnn.mese);
+  if(isNaN(imp)||isNaN(mese)||!editAnn.nome.trim())return;
+  const a=S.annuali.find(x=>x.id===editAnn.id);
+  if(a&&annPagata(a))S.saldo=+(S.saldo+a.importo-imp).toFixed(2); // tiene coerente il saldo se già pagata
+  S.annuali=S.annuali.map(x=>x.id===editAnn.id?{...x,nome:editAnn.nome.trim(),importo:imp,mese}:x);
+  editAnn=null;saveState(S);render();
+}
+function eliminaAnnuale(id){
+  const a=S.annuali.find(x=>x.id===id);
+  if(a&&annPagata(a))S.saldo=+(S.saldo+a.importo).toFixed(2);
+  S.annuali=S.annuali.filter(x=>x.id!==id);
+  confirmDel=null;saveState(S);render();
 }
 function aggiungiExtra(){
   const imp=parseFloat(formNuovo.importo.replace(",","."));
@@ -281,9 +341,9 @@ function confermaReset(){
   const v=parseFloat(resetSaldoVal.replace(",","."));
   if(isNaN(v)||resetSaldoVal.trim()==="")return;
   S.saldo=v;
-  S.fisse=S.fisse.map(f=>({...f,pagato:false}));
+  S.fisse=S.fisse.map(f=>({...f,pagato:false,na:false}));
   S.extra=[];
-  S.nextId=1;
+  S.nextId=Math.max(0,...S.fisse.map(f=>f.id),...S.annuali.map(a=>a.id))+1;
   showResetModal=false;resetSaldoVal="";
   saveState(S);render();
 }
@@ -295,7 +355,7 @@ function esportaJSON(){
 function importaJSON(e){
   const file=e.target.files[0];if(!file)return;
   const r=new FileReader();
-  r.onload=ev=>{try{S=JSON.parse(ev.target.result);saveState(S);render();}catch{alert("File non valido.");}};
+  r.onload=ev=>{try{S=normalizeState(JSON.parse(ev.target.result));saveState(S);render();}catch{alert("File non valido.");}};
   r.readAsText(file);e.target.value="";
 }
 
@@ -370,7 +430,7 @@ function render(){
   let saldoStrip="";
   if(editSaldoMode){
     saldoStrip=`<div class="saldo-strip" style="padding:10px 14px;gap:8px">
-      <input id="inp-saldo" type="number" inputmode="decimal" style="flex:1;background:#1F2937;border:1.5px solid #374151;color:#fff;border-radius:9px;padding:8px 12px;font-size:15px;outline:none" value="${saldo}}" oninput="editSaldoVal=this.value"/>
+      <input id="inp-saldo" type="number" inputmode="decimal" style="flex:1;background:#1F2937;border:1.5px solid #374151;color:#fff;border-radius:9px;padding:8px 12px;font-size:15px;outline:none" value="${saldo}" oninput="editSaldoVal=this.value"/>
       <button class="btn btn-green btn-sm" onclick="aggiornaSaldo()">✓ Salva</button>
       <button class="btn-ghost btn-sm" style="color:#9CA3AF;border-color:#374151" onclick="editSaldoMode=false;render()">✕</button>
     </div>`;
@@ -427,8 +487,9 @@ function render(){
 
   if(tab==="fisse"){
     const sorted=[...S.fisse].sort((a,b)=>a.giorno-b.giorno);
-    const tot=S.fisse.reduce((a,f)=>a+f.importo,0);
-    const pag=S.fisse.filter(f=>f.pagato).reduce((a,f)=>a+f.importo,0);
+    const attive=S.fisse.filter(f=>!f.na);
+    const tot=attive.reduce((a,f)=>a+f.importo,0);
+    const pag=attive.filter(f=>f.pagato).reduce((a,f)=>a+f.importo,0);
     const pct=tot>0?Math.round(pag/tot*100):0;
     const col=pct===100?"#059669":"#2563EB";
 
@@ -446,13 +507,14 @@ function render(){
           </div>
         </div>`;
       } else {
-        fisseRows+=`<div class="fissa-row">
-          <input type="checkbox" ${f.pagato?"checked":""} onchange="togglePagato(${f.id})"/>
+        fisseRows+=`<div class="fissa-row${f.na?" na":""}">
+          <input type="checkbox" ${f.pagato?"checked":""} ${f.na?"disabled":""} onchange="togglePagato(${f.id})"/>
           <div style="flex:1;min-width:0">
             <div class="fissa-nome${f.pagato?" done":""}">${f.nome}</div>
-            <div class="fissa-gg">Giorno ${f.giorno}</div>
+            <div class="fissa-gg">Giorno ${f.giorno}${f.na?' · <span class="badge badge-na">N/A questo mese</span>':""}</div>
           </div>
           <span class="fissa-imp${f.pagato?" done":""}">${fmt(f.importo)}</span>
+          <button class="btn-ghost btn-xs" title="Non applicabile questo mese" style="${f.na?"background:#E5E7EB;":""}" onclick="toggleNA(${f.id})">${f.na?"↩":"N/A"}</button>
           <button class="btn-ghost btn-xs" onclick="iniziaModificaFissa(${f.id})">✏️</button>
           <button class="btn-ghost btn-xs" style="color:#DC2626;border-color:#FCA5A5" onclick="confirmDel={type:'fissa',id:${f.id}};render()">🗑</button>
         </div>`;
@@ -489,6 +551,75 @@ function render(){
     </div>`;
   }
 
+  if(tab==="annuali"){
+    const mc=meseCorrente();
+    const sortedA=[...S.annuali].sort((a,b)=>a.mese-b.mese);
+    const totA=S.annuali.reduce((t,a)=>t+a.importo,0);
+    let annRows="";
+    sortedA.forEach(a=>{
+      const paid=annPagata(a);
+      if(editAnn&&editAnn.id===a.id){
+        annRows+=`<div class="fissa-row">
+          <div class="edit-inline">
+            <input type="text" value="${a.nome}" oninput="editAnn.nome=this.value" style="flex:2"/>
+            <input type="number" class="w-sm" value="${a.importo}" oninput="editAnn.importo=this.value" placeholder="€" inputmode="decimal"/>
+            <select style="flex:1;min-width:110px;padding:8px 10px;font-size:13px" onchange="editAnn.mese=this.value">
+              ${MESI.map((m,i)=>`<option value="${i+1}"${String(editAnn.mese)===String(i+1)?" selected":""}>${m}</option>`).join("")}
+            </select>
+            <button class="btn btn-blue btn-xs" onclick="salvaModAnn()">✓</button>
+            <button class="btn-ghost btn-xs" onclick="editAnn=null;render()">✕</button>
+          </div>
+        </div>`;
+      } else {
+        annRows+=`<div class="fissa-row">
+          <input type="checkbox" ${paid?"checked":""} onchange="togglePagataAnn(${a.id})"/>
+          <div style="flex:1;min-width:0">
+            <div class="fissa-nome${paid?" done":""}">${a.nome}</div>
+            <div class="fissa-gg">${MESI[a.mese-1]}${a.mese===mc&&!paid?' · <span class="badge badge-warn">Scade questo mese</span>':""}</div>
+          </div>
+          <span class="fissa-imp${paid?" done":""}">${fmt(a.importo)}</span>
+          <button class="btn-ghost btn-xs" onclick="iniziaModificaAnn(${a.id})">✏️</button>
+          <button class="btn-ghost btn-xs" style="color:#DC2626;border-color:#FCA5A5" onclick="confirmDel={type:'annuale',id:${a.id}};render()">🗑</button>
+        </div>`;
+      }
+    });
+    body=`<div class="card">
+      <div class="section-row">
+        <div style="font-weight:700;font-size:15px;flex:1">📅 Spese annuali</div>
+        <button class="btn btn-green btn-sm" onclick="showAddAnn=true;nuovaAnn={nome:'',importo:'',mese:'${mc}'};render()">+ Aggiungi</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <div style="flex:1;background:#F9FAFB;border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:#6B7280;font-weight:600">TOTALE ANNUO</div>
+          <div style="font-size:16px;font-weight:800">${fmt(totA)}</div>
+        </div>
+        <div style="flex:1;background:#F9FAFB;border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:#6B7280;font-weight:600">DA METTERE DA PARTE / MESE</div>
+          <div style="font-size:16px;font-weight:800">${fmt(totA/12)}</div>
+        </div>
+      </div>
+      ${annRows||'<div class="empty">Nessuna spesa annuale.</div>'}
+      ${showAddAnn?`<div class="add-fissa-box">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Nuova spesa annuale</div>
+        <div class="row" style="gap:6px">
+          <input type="text" style="flex:2;min-width:100px" placeholder="Nome" value="${nuovaAnn.nome}" oninput="nuovaAnn.nome=this.value"/>
+          <input type="number" style="width:95px" placeholder="€" value="${nuovaAnn.importo}" oninput="nuovaAnn.importo=this.value" inputmode="decimal"/>
+        </div>
+        <div style="margin-top:8px">
+          <label class="field-label">Mese di scadenza</label>
+          <select onchange="nuovaAnn.mese=this.value">
+            ${MESI.map((m,i)=>`<option value="${i+1}"${String(nuovaAnn.mese)===String(i+1)?" selected":""}>${m}</option>`).join("")}
+          </select>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-green" onclick="aggiungiAnnuale()">Aggiungi</button>
+          <button class="btn-ghost" onclick="showAddAnn=false;render()">Annulla</button>
+        </div>
+      </div>`:""}
+      <div style="font-size:11px;color:#9CA3AF;margin-top:12px">Spuntando una spesa come pagata il saldo si aggiorna. Le spese annuali che scadono nel mese corrente rientrano nel saldo effettivo. La spunta si azzera da sola l'anno dopo.</div>
+    </div>`;
+  }
+
   if(tab==="storico"){
     const sorted=[...S.extra].sort((a,b)=>b.data.localeCompare(a.data));
     const filt=filterCat==="Tutte"?sorted:sorted.filter(e=>e.cat===filterCat);
@@ -514,7 +645,7 @@ function render(){
   // Modale
   let modal="";
   if(confirmDel){
-    const action=confirmDel.type==="extra"?`eliminaExtra(${confirmDel.id})`:`eliminaFissa(${confirmDel.id})`;
+    const action=confirmDel.type==="extra"?`eliminaExtra(${confirmDel.id})`:confirmDel.type==="annuale"?`eliminaAnnuale(${confirmDel.id})`:`eliminaFissa(${confirmDel.id})`;
     modal=`<div class="modal-overlay" onclick="if(event.target===this){confirmDel=null;render()}">
       <div class="modal-box">
         <div class="modal-title">Eliminare questa voce?</div>
